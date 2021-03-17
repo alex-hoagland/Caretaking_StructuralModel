@@ -25,16 +25,13 @@
 
 ##### 0. Packages and functions ####
 # If data has been pre-organized, load now 
-print("Loading pre-formatted data for the cluster and updating functions.")
-load("SpeedyData_2021-03-13.Rdata")
-load("FinalData_20210311_SCC.RData")
+# print("Loading pre-formatted data for the cluster and updating functions.")
+load("SpeedyData_2021-03-13.Rdata") # set initial parameters to last iteration's output
+load("FinalData_20210311_SCC.RData") # main data set
 newstart <- as.vector(thetastar$estimate)
 newstart[40] <- 0.9 # Reset pi0 to be .9
 newstart[44] <- 1 # This one hardly changes outcomes, keep small? Need to look into that
 
-# load("FinalData_20210301_SCC.RData")
-
-# install.packages("doMC")
 library(data.table)
 library(tidyr)
 library(dplyr)
@@ -52,9 +49,7 @@ library(Rcpp)
 
 ### functions from other files
 rm(list = lsf.str()) # remove all functions
-# source("alcoa.R")
-Sys.setenv("PKG_LIBS" = "-lmpfr -lgmp")
-# sourceCpp("solveSpend_cpp.cpp")
+Sys.setenv("PKG_LIBS" = "-lmpfr -lgmp") # Need to use MPFR for large exponentiation
 sourceCpp("findChoices_cpp.cpp")
 source("spendingDensities.R")
 source("calculateLikelihood.R")
@@ -157,19 +152,7 @@ mgauss.hermite <- function(n, mu, prod, prune=NULL) {
 ########
 
 
-### some global things I don't want to deal with for now
-# heteroskedasticity <- F
-# negLambdaZeroUtil <- T # If lambda is <0, individual has 0 spending
-# multMH <- F # No need fo rmultiplicative moral hazard in my model
-# verbosity <- 2 # controls amount of output (0 = some, 1 = more, 2 = most)
-# prefix <- "mainSpec" # prefix to attach to output files
-
-### For cluster, set up parallelization
-# nCores <- detectCores()
-
-#argv <-commandArgs(TRUE)
-#nCores <- as.numeric(argv[1])
-
+### set up parallelization on the cluster
 nCores <- as.numeric(Sys.getenv("NSLOTS"))
 if (is.na(nCores))nCores = 1
 paste("Running code using",nCores,"cores") 
@@ -178,7 +161,7 @@ set.seed(03262020) # This is repeated for each function and done on the cluster 
 ################################################################################
 
 
-##### 1. Load data ####
+##### 1. Load data (if I need to start over from raw data files) ####
 #file <- "/project/caretaking/Outputs/StructuralModel/SMData_20210223.csv" # Location of data 
 #file <- "C:\\Users\\alexh\\Dropbox\\Caretaker_Spending\\2_Data\\7.StructuralModel\\SMData_20210223.csv"
 
@@ -274,7 +257,7 @@ rm(out)
 ###############
 
 
-### Run likelihood once ####
+### Run likelihood once, to time ####
 # Date (for filenames)
 currentDate <- Sys.Date()
 # file1 <- paste("FinalData_InitialLikelihood_",currentDate,".Rdata",sep="")
@@ -293,10 +276,8 @@ print(paste0("Calculated likelihood for theta0 to test that it works: log-likeli
 # print("Now choosing theta to optimize likelihood function")
 # TODO: Decide whether to use full sample or random subset
 
-# First step: simplex estimator until some level of convergence: 
-
-# Second step: use BFGS to estimate until full convergence: 
-# # Maximum likelihood estimation
+# First step: simplex estimator until some level of convergence:
+# Note: skipping this, appears BFGS is faster even from the beginning
 length_allb <- length(beta_p) + length(beta_lambda) + length(beta_psi) + length(beta_kappa)
 # thetastar <- maxNM(calculateLikelihood,start=newstart,finalHessian=FALSE, 
 #                      constraints=list(ineqA=rbind(c(rep(0, length_allb),1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),
@@ -312,6 +293,7 @@ length_allb <- length(beta_p) + length(beta_lambda) + length(beta_psi) + length(
 #                                       ineqB=rep(0,10)), # require that (i) variances, gamma dist. parameters, switching costs are nonnegative
 #                      control=list(reltol=1e-2,printLevel=1,iterlim=1000))
 
+# Second step: use BFGS to estimate until full convergence: 
 thetastar <- maxBFGS(calculateLikelihood,start=newstart,finalHessian=FALSE,
                      constraints=list(ineqA=rbind(c(rep(0, length_allb),1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),
                                                 c(rep(0, length_allb),0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),
@@ -325,37 +307,13 @@ thetastar <- maxBFGS(calculateLikelihood,start=newstart,finalHessian=FALSE,
                                                 c(rep(0, length_allb),0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)),
                                     ineqB=rep(0,10)), # require that (i) variances, gamma dist. parameters, switching costs are nonnegative
                    control=list(printLevel=1,iterlim=100))
-#beep()
-# # Constraints: need covariances to be bounded by variances: 
-# # constraint_sigma <- function(x) {
-# #   out <- rep(NA,3)
-# #   out[1] <- x[35]-x[34]*x[37]
-# #   out[2] <- x[36]-x[34]*x[39]
-# #   out[3] <- x[38]-x[37]*x[39]
-# #   return(out)
-# # }
-# # 
-# # thetastar <- lbfgs(x0=theta0,fn=calculateLikelihood, # Need to update lower bounds to be appropriate length
-# #                    lower=c(rep(-Inf,length(beta_p)),rep(-Inf,length(beta_psi)),rep(-Inf,length(beta_lambda)),rep(-Inf,length(beta_kappa)),
-# #                            1e-10,-Inf,-Inf,1e-10,-Inf,1e-10,1e-10,1e-10,-Inf,1e-10,-Inf),
-# #                   control=list("xtol_rel"=1.0e-4,"maxeval"=100000,"print_level" = 3))
-# # 
-# # opts <- list("algorithm"="NLOPT_LD_BFGS","xtol_rel"=1.0e-4,
-# #              "maxeval"=100000,"print_level" = 3) # print_level = 3 gives output at each iteration.
-# # thetastar <- nloptr(x0=theta0,
-# #                      eval_f=calculateLikelihood,
-# #                     lb=c(rep(-Inf,length(beta_p)),rep(-Inf,length(beta_psi)),rep(-Inf,length(beta_lambda)),rep(-Inf,length(beta_kappa)),
-# #                            1e-10,-Inf,-Inf,1e-10,-Inf,1e-10,1e-10,1e-10,-Inf,1e-10,-Inf), # for now, just require that variances be positive; add in ub as well?
-# #                     # eval_g_ineq=constraint_sigma, # Need to ensure a valid covariance matrix
-# #                      opts=opts) 
-# # write.csv(thetastar$status,file="Inprogress_thetastar.csv")  # save outcome to start theta0 next time?
 # #######################################################################################
-# 
-# 
+
+
 # ##### 5. Any saving you want to do ####
 # ### For Rmpi, if you ever get it to work: Concluding the parallelization
 # # stopCluster(cluster)
 # # mpi.exit()
 # 
-save.image(file2)
+save.image(file2) # saves output to use in next loop
 ########################################################################################
